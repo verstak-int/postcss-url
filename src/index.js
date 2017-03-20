@@ -3,14 +3,11 @@
 /**
  * Module dependencies.
  */
-const fs = require('fs');
 const path = require('path');
 
 const postcss = require('postcss');
 const url = require('url');
-const mkdirp = require('mkdirp');
 const minimatch = require('minimatch');
-const pathIsAbsolute = require('path-is-absolute');
 /**
  * @typedef UrlRegExp
  * @name UrlRegExp
@@ -151,8 +148,9 @@ const getDeclDirname = (decl) => {
  * @returns {boolean}
  */
 function isUrlShouldBeIgnored(url) {
-    return url[0] === '/' ||
-        url[0] === '#' ||
+    return url[0] === '#' ||
+        url.substring(0, 3) === '%23' ||
+        url[0] === '/' ||
         url.indexOf('data:') === 0 ||
         /^[a-z]+:\/\//.test(url);
 }
