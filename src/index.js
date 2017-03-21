@@ -4,10 +4,9 @@
  * Module dependencies.
  */
 const path = require('path');
-
 const postcss = require('postcss');
-const url = require('url');
 const minimatch = require('minimatch');
+
 /**
  * @typedef UrlRegExp
  * @name UrlRegExp
@@ -33,11 +32,12 @@ const PROCESS_TYPES = [
  * Fix url() according to source (`from`) or destination (`to`)
  *
  * @param {Object} options plugin options
- * @return {void}
+ * @returns {void}
  */
+
 module.exports = postcss.plugin(
     'postcss-url',
-    function fixUrl(options) {
+    (options) => {
         options = options || {};
 
         return function(styles, result) {
@@ -67,7 +67,7 @@ function getUrlProcessor(mode) {
     if (~PROCESS_TYPES.indexOf(mode)) {
         return require(`./type/${mode}`);
     }
-    throw new Error('Unknown mode for postcss-url: ' + mode);
+    throw new Error(`Unknown mode for postcss-url: ${mode}`);
 }
 
 /**
@@ -83,55 +83,28 @@ function getUrlProcessor(mode) {
 function getDeclProcessor(options, result) {
     const from = result.opts.from
         ? path.dirname(result.opts.from)
-        : ".";
+        : '.';
     const to = result.opts.to
         ? path.dirname(result.opts.to)
         : from;
 
     return function(decl) {
-        URL_PATTERNS.some(function(pattern) {
+        URL_PATTERNS.some((pattern) => {
             if (!pattern.test(decl.value)) {
                 return;
             }
 
             decl.value = decl.value
-                .replace(pattern, function(_, beforeUrl, url, afterUrl) {
-                    return beforeUrl +
-                        (replaceUrl(url, from, to, options, result, decl) || url) +
-                        afterUrl;
+                .replace(pattern, (_, beforeUrl, url, afterUrl) => {
+                    return beforeUrl
+                        + (replaceUrl(url, from, to, options, result, decl) || url)
+                        + afterUrl;
                 });
 
             return true;
         });
     };
 }
-
-function replaceUrl(url, from, to, options, result, decl) {
-    if (typeof options.url !== 'function' && isUrlShouldBeIgnored(url)) {
-        return;
-    }
-
-    if (Array.isArray(options)) {
-        options = options.find(option =>
-            matchesFilter(url, option.filter)
-        );
-    }
-
-    if (!options || !matchesFilter(url, options.filter)) {
-        return
-    }
-    const mode = typeof options.url === 'function' ?
-        'custom' :
-        options.url;
-    const urlProcessor = getUrlProcessor(mode || 'rebase');
-    const dir = {
-        file: getDeclDirname(decl),
-        from: from,
-        to: to
-    };
-
-    return urlProcessor(url, dir, options, result, decl);
-};
 
 const getDeclFilename = (decl) =>
     decl.source && decl.source.input && decl.source.input.file;
@@ -142,17 +115,39 @@ const getDeclDirname = (decl) => {
     return filename ? path.dirname(filename) : process.cwd();
 };
 
+function replaceUrl(url, from, to, options, result, decl) {
+    if (!options) return;
+
+    if (Array.isArray(options)) {
+        options = options.find((option) => matchesFilter(url, option.filter));
+
+        if (!options) return;
+    } else if (!matchesFilter(url, options.filter)) return;
+
+    const isFunction = typeof options.url === 'function';
+
+    if (!isFunction && isUrlShouldBeIgnored(url)) return;
+
+    const mode = isFunction ? 'custom' : options.url;
+    const urlProcessor = getUrlProcessor(mode || 'rebase');
+    const dir = { file: getDeclDirname(decl), from, to };
+
+    const warn = (message) => result.warn(message, { node: decl });
+
+    return urlProcessor(url, dir, options, { warn }, result, decl);
+}
+
 /**
  * Check if url is absolute, hash or data-uri
  * @param {String} url
  * @returns {boolean}
  */
 function isUrlShouldBeIgnored(url) {
-    return url[0] === '#' ||
-        url.substring(0, 3) === '%23' ||
-        url[0] === '/' ||
-        url.indexOf('data:') === 0 ||
-        /^[a-z]+:\/\//.test(url);
+    return url[0] === '#'
+        || url.indexOf('%23') === 0
+        || url[0] === '/'
+        || url.indexOf('data:') === 0
+        || /^[a-z]+:\/\//.test(url);
 }
 
 /**
@@ -163,7 +158,7 @@ function isUrlShouldBeIgnored(url) {
  * @param {String|RegExp|Function} pattern A minimatch string,
  *   regular expression or function to test the filename
  *
- * @return {Boolean}
+ * @returns {Boolean}
  */
 function matchesFilter(filename, pattern) {
     if (typeof pattern === 'string') {

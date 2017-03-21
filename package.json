@@ -15,9 +15,8 @@
   "author": "Maxime Thirouin",
   "license": "MIT",
   "repository": "https://github.com/postcss/postcss-url.git",
-  "files": [
-    "src/index.js"
-  ],
+  "main": "src/index.js",
+  "files": ["src"],
   "dependencies": {
     "js-base64": "^2.1.5",
     "mime": "^1.2.11",
@@ -34,7 +33,7 @@
     "tape": "^4.0.3"
   },
   "scripts": {
-    "lint": "eslint .",
+    "lint": "eslint --fix .",
     "tests": "tape test",
     "test": "npm run lint && npm run tests",
     "release": "npmpub"

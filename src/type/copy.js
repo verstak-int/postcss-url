@@ -1,11 +1,28 @@
 'use strict';
 
 const path = require('path');
-const calcHash = require('../calc-hash');
 const url = require('url');
 const fs = require('fs');
 const pathIsAbsolute = require('path-is-absolute');
 const mkdirp = require('mkdirp');
+
+const calcHash = require('../calc-hash');
+const findFile = require('../findFile');
+
+const defaultHashOptions = {
+    method: 'xxhash32',
+    shrink: 8
+};
+
+const filePathSubtract = (file, from) => {
+    if (!pathIsAbsolute.posix(from)) {
+        from = path.resolve(from);
+    }
+    // escaping from
+    const fromEscaped = new RegExp(`${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\/]\?`);
+
+    return file.replace(fromEscaped, '');
+};
 
 /**
  * Copy images from readed from url() to an specific assets destination
@@ -15,77 +32,63 @@ const mkdirp = require('mkdirp');
  * Option assetsPath is require and is relative to the css destination (`to`)
  *
  * @type {PostcssUrl~UrlProcessor}
+ * @param {String} originUrl
+ * @param {PostcssUrl~Dirs} dir
+ * @param {PostcssUrl~Option} options
+ * @param {PostscssUrl~Log} log
+ *
+ * @returns {String|Undefined}
  */
-module.exports = function processCopy(originUrl, dir, options, result, decl) {
-  if (dir.from === dir.to) {
-    result.warn('Option `to` of postcss is required, ignoring', { node: decl });
-    return;
-  }
-  let relativeAssetsPath = (options && options.assetsPath)
-        ? options.assetsPath
-        : '';
-  let absoluteAssetsPath;
+module.exports = function processCopy(originUrl, dir, options, log) {
+    if (!options.assetsPath && dir.from === dir.to) {
+        log.warn('Option `to` of postcss is required, ignoring');
 
-  let filePathUrl = path.resolve(dir.file, originUrl);
-  let nameUrl = path.basename(filePathUrl);
-
-  // remove hash or parameters in the url.
-  // e.g., url('glyphicons-halflings-regular.eot?#iefix')
-  let fileLink = url.parse(originUrl);
-  let filePath = path.resolve(dir.file, fileLink.pathname);
-  let name = path.basename(filePath);
-  let useHash = options.useHash || false;
-
-  // check if the file exist in the source
-  try {
-    var contents = fs.readFileSync(filePath)
-  } catch (err) {
-    result.warn('Can\'t read file \'' + filePath + '\', ignoring', { node: decl });
-    return;
-  }
-
-  if (useHash) {
-    absoluteAssetsPath = path.resolve(dir.to, relativeAssetsPath);
-
-    // create the destination directory if it not exist
-    mkdirp.sync(absoluteAssetsPath);
-
-    let hashOptions = options.hashOptions || {
-      method: "xxhash32",
-      shrink: 8
+        return;
     }
 
-    name = calcHash(contents, hashOptions) + path.extname(filePath);
+    const link = url.parse(originUrl);
+    const file = findFile(dir, link, options.basePath, log);
 
-    nameUrl = name + (fileLink.search || '') + (fileLink.hash || '');
-  } else {
-    if (!pathIsAbsolute.posix(dir.from)) {
-      dir.from = path.resolve(dir.from);
-    }
-    relativeAssetsPath = path.join(
+    if (!file) return;
+
+    const hashOptions = options.hashOptions || defaultHashOptions;
+    const name = options.useHash
+        ? calcHash(file.contents, hashOptions) + path.extname(file.path)
+        : path.basename(file.path);
+
+    let relativeAssetsPath = options.assetsPath ? options.assetsPath : '';
+
+    // calc relative path if not use hash naming
+    if (!options.useHash) {
+        relativeAssetsPath = path.join(
             relativeAssetsPath,
-            dir.file.replace(new RegExp(dir.from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-                + '[\/]\?'), ''),
+            filePathSubtract(dir.file, dir.from),
             path.dirname(originUrl)
         );
-    absoluteAssetsPath = path.resolve(dir.to, relativeAssetsPath);
+    }
 
-        // create the destination directory if it not exist
-    mkdirp.sync(absoluteAssetsPath);
-  }
+    const absoluteAssetsDir = path.resolve(dir.to, relativeAssetsPath);
+    const absoluteAssetPath = path.join(absoluteAssetsDir, name);
 
-  absoluteAssetsPath = path.join(absoluteAssetsPath, name);
+    mkdirp.sync(absoluteAssetsDir);
 
     // if the file don't exist in the destination, create it.
-  try {
-    fs.accessSync(absoluteAssetsPath);
-  } catch (err) {
-    fs.writeFileSync(absoluteAssetsPath, contents);
-  }
+    try {
+        fs.accessSync(absoluteAssetPath);
+    } catch (err) {
+        fs.writeFileSync(absoluteAssetPath, file.contents);
+    }
 
-  let assetPath = path.join(relativeAssetsPath, nameUrl);
-  if (path.sep === '\\') {
-    assetPath = assetPath.replace(/\\/g, '\/');
-  }
-  return assetPath;
+    let assetPath = path.join(
+        relativeAssetsPath,
+        name + (link.search || '') + (link.hash || '')
+    );
+
+    assetPath = path.normalize(assetPath);
+
+    if (path.sep === '\\') {
+        assetPath = assetPath.replace(/\\/g, '\/');
+    }
+
+    return assetPath;
 };

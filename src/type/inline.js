@@ -1,78 +1,75 @@
 'use strict';
 
-const path = require('path');
 const url = require('url');
 const fs = require('fs');
 const mime = require('mime');
-const encodeFile = require("../encode-file");
+const encodeFile = require('../encode-file');
 
 const processCopy = require('./copy');
-const processCustom = require('./custom');
+const findFile = require('../findFile');
 
-const restoreHash = (content, hash) => hash ? content + hash : content;
+/**
+ * @param {String} originUrl
+ * @param {PostcssUrl~Dirs} dir
+ * @param {PostcssUrl~Option} options
+ *
+ * @returns {String|Undefined}
+ */
+function processFallback(originUrl, dir, options) {
+    if (typeof options.fallback === 'function') {
+        return options.fallback.apply(null, arguments);
+    }
+    switch (options.fallback) {
+        case 'copy':
+            return processCopy.apply(null, arguments);
+        default:
+            return;
+    }
+}
 
 /**
  * Inline image in url()
  *
  * @type {PostcssUrl~UrlProcessor}
+ * @param {String} originUrl
+ * @param {PostcssUrl~Dirs} dir
+ * @param {PostcssUrl~Option} options
+ * @param {PostscssUrl~Log} log
+ *
+ * @returns {String|Undefined}
  */
-module.exports = function (originUrl, dir, options, result, decl) {
-  let maxSize = options.maxSize === undefined ? 14 : options.maxSize;
-  let fallback = options.url;
-  let basePath = options.basePath;
-  let encodeType = options.encodeType || 'base64';
-  let fullFilePath;
+module.exports = function(originUrl, dir, options, log) {
+    const maxSize = (options.maxSize || 0) * 1024;
+    const encodeType = options.encodeType || 'base64';
 
-  maxSize = maxSize * 1024;
+    const link = url.parse(originUrl);
+    const file = findFile(dir, link, options.basePath, log);
 
-  function processFallback() {
-    if (typeof fallback === 'function') {
-      options.url = fallback;
-      return processCustom(originUrl, dir, options, result, decl);
+    if (!file) return;
+
+    if (maxSize) {
+        const stats = fs.statSync(file.path);
+
+        return stats.size >= maxSize && processFallback.apply(this, arguments);
     }
-    switch (fallback) {
-    case 'copy':
-      return processCopy(originUrl, dir, options, result, decl);
-    default:
-      return;
+
+    const mimeType = mime.lookup(file.path);
+
+    // Warn for svg with hashes/fragments
+    if (link.hash && mimeType === 'image/svg+xml') {
+        log.warn(
+        // eslint-disable-next-line max-len
+          `Image type is svg and link contains #. Postcss-url cant handle svg fragments. SVG file fully inlined. ${file.path}`
+        );
     }
-  }
 
-  let link = url.parse(originUrl);
+    if (!mimeType) {
+        log.warn(`Unable to find asset mime-type for ${file.path}`);
 
-  if (basePath) {
-    fullFilePath = path.join(basePath, link.pathname);
-  } else {
-    fullFilePath = dir.file !== dir.from
-            ? dir.file + path.sep + link.pathname
-            : link.pathname;
-  }
+        return;
+    }
 
-  let file = path.resolve(dir.from, fullFilePath);
-  if (!fs.existsSync(file)) {
-    result.warn('Can\'t read file \'' + file + '\', ignoring', { node: decl });
-    return;
-  }
+    const encodedStr = encodeFile(file.contents, mimeType, encodeType);
 
-  let stats = fs.statSync(file)
-  if (stats.size >= maxSize) {
-    return processFallback();
-  }
-
-  let mimeType = mime.lookup(file);
-
-  // Warn for svg with hashes/fragments
-  if (link.hash && mimeType === 'image/svg+xml') {
-    result.warn(
-      'Image type is svg and link contains #. Postcss-url cant handle svg fragments. ' + file, { node: decl }
-    );
-  }
-
-  if (!mimeType) {
-    result.warn('Unable to find asset mime-type for ' + file, { node: decl });
-    return;
-  }
-
-  const content = fs.readFileSync(file);
-  return restoreHash(encodeFile(content, mimeType, encodeType), link.hash);
+    return link.hash ? encodedStr + link.hash : encodedStr;
 };
